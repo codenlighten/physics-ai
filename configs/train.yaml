@@ -1,0 +1,8 @@
+universe_count: 500
+epochs: 50
+batch_size: 64
+learning_rate: 0.001
+validation_split: 0.2
+checkpoint_path: models/best.pt
+model_path: models/foundation.pt
+metrics_path: models/metrics.csv
