@@ -13,11 +13,13 @@ from .backend import as_xp, get_xp, to_numpy
 def laplacian(field: np.ndarray) -> np.ndarray:
     xp = get_xp()
     data = as_xp(field)
+    axis0 = -2
+    axis1 = -1
     return (
-        xp.roll(data, 1, 0)
-        + xp.roll(data, -1, 0)
-        + xp.roll(data, 1, 1)
-        + xp.roll(data, -1, 1)
+        xp.roll(data, 1, axis0)
+        + xp.roll(data, -1, axis0)
+        + xp.roll(data, 1, axis1)
+        + xp.roll(data, -1, axis1)
         - 4 * data
     )
 
@@ -27,6 +29,8 @@ class WaveConfig:
     steps: int = 60
     wave_speed: float = 1.0
     dt: float = 0.1
+    nonlinear_coeff: float = 0.0
+    biharmonic_coeff: float = 0.0
 
 
 @dataclass
@@ -64,7 +68,10 @@ def simulate_wave(field: np.ndarray, config: WaveConfig) -> np.ndarray:
     velocity = xp.zeros_like(field)
     frames = []
     for _ in range(config.steps):
-        accel = (config.wave_speed ** 2) * laplacian(field)
+        lap = laplacian(field)
+        biharmonic = laplacian(lap) if config.biharmonic_coeff != 0 else 0.0
+        nonlinear = -config.nonlinear_coeff * (field ** 3) if config.nonlinear_coeff != 0 else 0.0
+        accel = (config.wave_speed ** 2) * lap + config.biharmonic_coeff * biharmonic + nonlinear
         velocity = velocity + accel * config.dt
         field = field + velocity * config.dt
         frames.append(field.copy())

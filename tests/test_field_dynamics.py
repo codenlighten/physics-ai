@@ -27,6 +27,21 @@ def test_simulate_wave_frames() -> None:
     assert frames.shape == (5, 8, 8)
 
 
+def test_simulate_wave_with_nonlinear_terms() -> None:
+    field = np.random.default_rng(6).random((6, 6))
+    frames = simulate_wave(
+        field,
+        WaveConfig(steps=3, wave_speed=1.0, dt=0.1, nonlinear_coeff=0.2, biharmonic_coeff=0.1),
+    )
+    assert frames.shape == (3, 6, 6)
+
+
+def test_simulate_wave_batch_frames() -> None:
+    field = np.random.default_rng(5).random((3, 6, 6))
+    frames = simulate_wave(field, WaveConfig(steps=4, wave_speed=1.0, dt=0.1))
+    assert frames.shape == (4, 3, 6, 6)
+
+
 def test_simulate_diffusion_frames() -> None:
     field = np.random.default_rng(2).random((6, 6))
     frames = simulate_diffusion(field, DiffusionConfig(steps=4, diffusion=0.2))

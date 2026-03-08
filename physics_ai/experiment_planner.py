@@ -35,6 +35,8 @@ def propose_experiment(
         "wave_speed": random.uniform(0.5, 2.0),
         "wavelength": random.uniform(6.0, 16.0),
         "amplitude": random.uniform(0.5, 1.5),
+        "wave_nonlinear": random.uniform(0.0, 0.4),
+        "wave_biharmonic": random.uniform(0.0, 0.2),
         "pulse_position": random.randint(8, 56),
         "steps": random.randint(80, 160),
         "boundary": random.choice(["square", "torus"]),

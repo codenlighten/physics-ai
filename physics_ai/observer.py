@@ -10,12 +10,23 @@ from .backend import as_xp, get_xp, to_numpy
 
 from .geometry_frequency import geometry_frequency_features
 from .group_theory import classify_group, rotation_symmetry, reflection_symmetry, so2_symmetry_score
+from .defect_detector import defect_summary
 
 
 def observe(grid: np.ndarray) -> Dict[str, Any]:
     spectrum = np.abs(np.fft.fft2(grid))
     dominant_index = np.unravel_index(np.argmax(spectrum), spectrum.shape)
     dominant_freq = float(max(dominant_index))
+    spectrum_sum = float(np.sum(spectrum))
+    if spectrum_sum == 0:
+        spectral_entropy = 0.0
+    else:
+        probs = spectrum.flatten() / spectrum_sum
+        entropy = -np.sum(probs * np.log(probs + 1e-12))
+        spectral_entropy = float(entropy / np.log(probs.size)) if probs.size > 1 else 0.0
+    energy = grid ** 2
+    energy_sum = float(np.sum(energy)) if np.sum(energy) != 0 else 1.0
+    energy_localization = float(np.max(energy) / energy_sum)
     rotation_order, rotation_score = rotation_symmetry(grid)
     reflection_score = reflection_symmetry(grid)
     so2_score = so2_symmetry_score(grid)
@@ -26,6 +37,8 @@ def observe(grid: np.ndarray) -> Dict[str, Any]:
         "peak": float(np.max(grid)),
         "dominant_frequency": dominant_freq,
         "spectrum_mean": float(np.mean(spectrum)),
+        "spectral_entropy": spectral_entropy,
+        "energy_localization": energy_localization,
         "symmetry_group": classify_group(grid),
         "rotation_order": rotation_order,
         "rotation_score": rotation_score,
@@ -33,6 +46,7 @@ def observe(grid: np.ndarray) -> Dict[str, Any]:
         "so2_score": so2_score,
     }
     metrics.update(geometry_frequency_features(grid))
+    metrics.update(defect_summary(grid))
     return metrics
 
 

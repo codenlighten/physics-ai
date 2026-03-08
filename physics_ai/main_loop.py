@@ -21,6 +21,12 @@ from .noether_inference import infer_noether
 from .theory_compression import TheoryCandidate, rank_theories
 from .dispersion_extractor import dispersion_summary
 from .mode_coupling import coupling_summary
+from .checkpoint import (
+    init_run,
+    load_checkpoint_config,
+    load_checkpoint_metadata,
+    save_batch,
+)
 
 
 def _aggregate_symbolic_features(observations: List[Dict[str, Any]]) -> List[float]:
@@ -53,6 +59,9 @@ def run_experiment(
     universe_type: str | None = None,
     dynamics_type: str | None = None,
     store_fields: bool = False,
+    batch_size: int = 1,
+    debug_batch: bool = False,
+    start_index: int = 0,
 ) -> Dict[str, Any]:
     dataset = explore_universes(
         universe_count,
@@ -60,6 +69,9 @@ def run_experiment(
         universe_type=universe_type,
         dynamics_type=dynamics_type,
         store_fields=store_fields,
+        batch_size=batch_size,
+        debug_batch=debug_batch,
+        start_index=start_index,
     )
     observations: List[Dict[str, Any]] = [item["observation"] for item in dataset]
 
@@ -343,24 +355,77 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true")
     parser.add_argument("--max-universes", type=int, default=1)
     parser.add_argument("--cuda", action="store_true")
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--debug-batch", action="store_true")
+    parser.add_argument("--checkpoint-dir", default=None)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
     if args.cuda:
         os.environ["PHYSICS_AI_CUDA"] = "1"
+    if args.batch_size > 512:
+        raise ValueError("Batch size too large for typical GPU memory (max 512).")
+
+    resume_start = 0
+    resume_from = None
+    resume_config: Dict[str, Any] | None = None
+    run_dir = None
+    batch_index = 0
+    if args.checkpoint_dir:
+        resume_config = load_checkpoint_config(args.checkpoint_dir) if args.resume else None
+        metadata = load_checkpoint_metadata(args.checkpoint_dir) if args.resume else None
+        if metadata:
+            resume_start = int(metadata.get("universes_processed", 0))
+            batch_index = int(metadata.get("batches_completed", 0))
+        if metadata and metadata.get("resume_from"):
+            resume_from = str(metadata["resume_from"])
+
+    base_config = resume_config or {}
+    universe_type = args.universe_type if args.universe_type is not None else base_config.get("universe_type")
+    dynamics_type = args.dynamics_type if args.dynamics_type is not None else base_config.get("dynamics_type")
+    seed = args.seed if args.seed is not None else base_config.get("seed")
+    batch_size = args.batch_size if args.batch_size is not None else base_config.get("batch_size", 1)
 
     results = run_experiment(
         universe_count=args.universe_count,
-        seed=args.seed,
+        seed=seed,
         generations=args.generations,
         discovery_log_path=args.discovery_log_path,
         proposal_model_path=args.proposal_model_path,
-        universe_type=args.universe_type,
-        dynamics_type=args.dynamics_type,
+        universe_type=universe_type,
+        dynamics_type=dynamics_type,
         store_fields=args.visualize,
+        batch_size=batch_size,
+        debug_batch=args.debug_batch,
+        start_index=resume_start,
     )
     print("Discovered relation:", results["inverse_law"])
     print("Best evolved hypothesis:", results["best_hypothesis"])
     print("Concept graph:\n", results["graph"].summary())
+
+    if args.checkpoint_dir:
+        run_config = {
+            "universe_count": args.universe_count,
+            "seed": args.seed,
+            "generations": args.generations,
+            "discovery_log_path": args.discovery_log_path,
+            "proposal_model_path": args.proposal_model_path,
+            "universe_type": args.universe_type,
+            "dynamics_type": args.dynamics_type,
+            "batch_size": args.batch_size,
+            "cuda": args.cuda,
+            "resume": bool(args.resume),
+            "resume_start": resume_start,
+        }
+        run_dir, _ = init_run(args.checkpoint_dir, run_config, resume=args.resume)
+        save_batch(
+            run_dir,
+            results,
+            start_index=resume_start,
+            batch_index=batch_index,
+            resume_from=resume_from,
+        )
+        print(f"Checkpoint saved to: {run_dir}")
 
     if args.visualize:
         from .visualization import render_summary

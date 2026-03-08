@@ -145,6 +145,16 @@ python -m physics_ai.main_loop --universe-type spectral --dynamics-type wave
 
 You can also use the same option in `DatasetConfig` and `worker.py`.
 
+### Batch simulation
+
+You can simulate multiple universes per step with `--batch-size` (currently supported for `wave`, `diffusion`, and `schrodinger` dynamics):
+
+```bash
+python -m physics_ai.main_loop --dynamics-type wave --batch-size 64
+```
+
+Use `--debug-batch` to print batch and backend details for quick diagnostics.
+
 ## Lagrangian discovery
 
 For time-evolving universes, the engine now scores candidate Lagrangians against the observed temporal signal and stores the best result in the knowledge graph.
@@ -280,6 +290,108 @@ python -m physics_ai.main_loop --cuda --dynamics-type wave
 Or set `PHYSICS_AI_CUDA=1` in the environment.
 
 If CUDA is requested but CuPy is not installed, the engine will emit a warning and fall back to CPU execution.
+
+## Checkpointing runs
+
+Persist experiment outputs (config, laws, universes, particles, metadata) with:
+
+```bash
+python -m physics_ai.main_loop --dynamics-type wave --batch-size 64 --checkpoint-dir experiments
+```
+
+Each run creates `run_<timestamp>_<id>` folders containing `config.json`, batch-sharded `universes_batch_*.parquet`, `particles_batch_*.parquet`, `laws.json`, and `metadata.json`.
+
+Use `--resume` with the same checkpoint directory to continue from the most recent run:
+
+```bash
+python -m physics_ai.main_loop --dynamics-type wave --batch-size 64 --checkpoint-dir experiments --resume
+```
+
+Run folders are tagged with short UUIDs: `run_<timestamp>_<id>`. When resuming, new batches append into the same run directory.
+
+## Universe interestingness scoring
+
+Each observation now includes a `score` that blends particle counts, resonance strength, dispersion complexity, temporal drift, and a novelty bonus. The score is diversity-aware (penalizes similarity to previously seen universes) and is stored in `universes_batch_*.parquet` alongside `score_raw`, `diversity_penalty`, and `novelty_bonus`.
+
+## Complexity phase detector
+
+Observations are classified into regimes (e.g., `LINEAR_WAVE`, `RESONANT_STANDING_WAVE`, `SOLITON_FIELD`, `TURBULENT_FIELD`, `PARTICLE_SYSTEM`). Phase labels and confidence values are stored in checkpoints as `phase` and `phase_confidence`.
+
+## Topological defect detection
+
+The observer now tracks defect-related metrics (`vortex_count`, `nodal_loop_count`, `defect_density`, `coherence_length`) to strengthen particle classification.
+
+## Universe atlas
+
+Build a 2D embedding of universe signatures with UMAP or t-SNE:
+
+```bash
+python -m physics_ai.atlas_runner --run-dir experiments/run_<timestamp>_<id> --method umap --output atlas.csv --plot atlas.png
+```
+
+## Live physics map dashboard
+
+Launch the live atlas dashboard with Streamlit:
+
+```bash
+streamlit run physics_ai/live_dashboard.py -- --run-dir experiments
+```
+
+## Theory compression (SINDy-style)
+
+Run sparse regression over temporal signals stored in a universe shard:
+
+```bash
+python -m physics_ai.theory_compression_runner --input experiments/run_<timestamp>_<id>/universes_batch_0000.parquet --output theory_compression.json
+```
+
+## Distributed batch execution (Ray)
+
+If you have Ray installed, run distributed batches with:
+
+```bash
+python -m physics_ai.distributed_runner --universe-count 256 --batch-size 64
+```
+
+The distributed runner uses Ray workers to execute batches in parallel and returns a combined dataset.
+
+To write checkpoint shards directly from Ray workers:
+
+```bash
+python -m physics_ai.distributed_runner --universe-count 256 --batch-size 64 --checkpoint-dir experiments
+```
+
+Use `--resume` to append additional shards into the latest run directory.
+
+## Evolutionary universe search
+
+Run a simple evolutionary loop that mutates the highest-scoring universes each generation:
+
+```bash
+python -m physics_ai.evolutionary_runner --generations 3 --population-size 20 --elite-count 5 --dynamics-type wave --checkpoint-dir experiments
+```
+
+Use CMA-ES style mutations by passing `--mutation-strategy cmaes` and optionally tune `--sigma`.
+
+Wave dynamics now support adaptive law terms via `wave_nonlinear` and `wave_biharmonic` parameters, which are mutated during evolution.
+
+Enable equation-level evolution (term library mutation) with:
+
+```bash
+python -m physics_ai.evolutionary_runner --equation-evolution --term-toggle-prob 0.3
+```
+
+You can also target a specific phase by adding a phase bonus:
+
+```bash
+python -m physics_ai.evolutionary_runner --generations 3 --population-size 20 --elite-count 5 --target-phase PARTICLE_SYSTEM --phase-bonus 2.0
+```
+
+Atlas-guided evolution seeds new populations from sparse atlas regions:
+
+```bash
+python -m physics_ai.evolutionary_runner --generations 3 --population-size 20 --elite-count 5 --atlas-guided --atlas-method umap --atlas-seed-count 5
+```
 
 ## Canonical pass/fail benchmark
 
