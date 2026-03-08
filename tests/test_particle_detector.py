@@ -21,3 +21,7 @@ def test_particle_summary_outputs() -> None:
     frames[:, 2, 2] = 1.0
     summary = particle_summary(frames, threshold=0.5)
     assert summary["particle_count"] >= 1
+    assert summary["localization"] >= 0.0
+    assert summary["coherence"] >= 0.0
+    assert summary["persistence"] >= 0.0
+    assert summary["particle_score"] >= 0.0

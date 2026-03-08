@@ -13,11 +13,18 @@ def detect_phase(observation: Dict[str, Any]) -> Dict[str, Any]:
     resonance_strength = float(observation.get("resonance_strength", 0.0))
     defect_density = float(observation.get("defect_density", 0.0))
     vortex_count = float(observation.get("vortex_count", 0.0))
+    particle_score = float(observation.get("particle_score", 0.0))
 
     phase = "LINEAR_WAVE"
     confidence = 0.4
 
-    if particle_count >= 2 and temporal_drift < 0.3 and (defect_density > 0.01 or vortex_count > 0):
+    if particle_score > 1.2 and particle_count >= 2:
+        phase = "SOLITON_REGIME"
+        confidence = min(0.92, 0.6 + 0.05 * particle_score)
+    elif particle_score > 0.6 and particle_count >= 1 and temporal_drift < 0.3:
+        phase = "VORTEX_PARTICLE_REGIME" if vortex_count > 0 else "PARTICLE_SYSTEM"
+        confidence = min(0.9, 0.55 + 0.1 * particle_score)
+    elif particle_count >= 2 and temporal_drift < 0.3 and (defect_density > 0.01 or vortex_count > 0):
         phase = "PARTICLE_SYSTEM"
         confidence = min(0.9, 0.5 + 0.1 * particle_count)
     elif spectral_entropy > 0.75 and temporal_drift > 0.4:

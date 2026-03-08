@@ -62,6 +62,21 @@ class SchrodingerConfig:
     dt: float = 0.01
 
 
+@dataclass
+class CoupledFieldConfig:
+    steps: int = 80
+    dt: float = 0.05
+    diffusion_psi: float = 0.15
+    diffusion_phi: float = 0.08
+    coupling_linear: float = 0.6
+    coupling_quadratic: float = 0.3
+    coupling_cross: float = 0.25
+    psi_cubic: float = 0.2
+    phi_cubic: float = 0.15
+    psi_decay: float = 0.05
+    phi_decay: float = 0.04
+
+
 def simulate_wave(field: np.ndarray, config: WaveConfig) -> np.ndarray:
     xp = get_xp()
     field = as_xp(field)
@@ -124,4 +139,35 @@ def simulate_schrodinger(field: np.ndarray, config: SchrodingerConfig) -> np.nda
         lap = laplacian(state)
         state = state + 1j * config.dt * lap
         frames.append(state.copy())
+    return to_numpy(xp.stack(frames))
+
+
+def simulate_coupled_fields(
+    psi_field: np.ndarray,
+    phi_field: np.ndarray,
+    config: CoupledFieldConfig,
+) -> np.ndarray:
+    xp = get_xp()
+    psi = as_xp(psi_field)
+    phi = as_xp(phi_field)
+    frames = []
+    for _ in range(config.steps):
+        lap_psi = laplacian(psi)
+        lap_phi = laplacian(phi)
+        dpsi = (
+            config.diffusion_psi * lap_psi
+            + config.coupling_linear * psi * phi
+            + config.coupling_quadratic * (psi ** 2) * phi
+            - config.psi_cubic * (psi ** 3)
+            - config.psi_decay * psi
+        )
+        dphi = (
+            config.diffusion_phi * lap_phi
+            + config.coupling_cross * (phi ** 2) * psi
+            - config.phi_cubic * (phi ** 3)
+            - config.phi_decay * phi
+        )
+        psi = psi + dpsi * config.dt
+        phi = phi + dphi * config.dt
+        frames.append(xp.stack([psi.copy(), phi.copy()]))
     return to_numpy(xp.stack(frames))

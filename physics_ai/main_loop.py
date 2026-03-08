@@ -182,6 +182,16 @@ def run_experiment(
     graph = ConceptGraph()
     graph.add_relation("frequency", "inverse_wavelength", inverse_law, evidence="simulation")
     if symbolic_law:
+        family = "other"
+        equation = symbolic_law.law
+        if "*" in equation and "phi" in equation:
+            family = "reaction-diffusion"
+        elif "psi^5" in equation or "phi^3" in equation:
+            family = "ginsburg-landau"
+        elif "biharmonic" in equation or "laplacian" in equation:
+            family = "nonlinear-wave"
+        for obs in observations:
+            obs["law_family"] = family
         graph.add_relation(
             "frequency",
             "symbolic_law",
@@ -189,6 +199,7 @@ def run_experiment(
                 "equation": symbolic_law.law,
                 "confidence": symbolic_law.confidence,
                 "error": symbolic_law.error,
+                "family": family,
             },
             evidence="symbolic",
         )
@@ -215,6 +226,47 @@ def run_experiment(
             },
             evidence="noether",
         )
+    if observations:
+        family_counts: Dict[str, int] = {}
+        for obs in observations:
+            family = obs.get("law_family")
+            if family:
+                family_counts[str(family)] = family_counts.get(str(family), 0) + 1
+        if family_counts:
+            dominant_family = max(family_counts, key=family_counts.get)
+            graph.add_relation(
+                "atlas",
+                "family_distribution",
+                {"counts": family_counts, "dominant_family": dominant_family},
+                evidence="symbolic",
+            )
+        generations = [obs.get("generation") for obs in observations if obs.get("generation") is not None]
+        if generations:
+            drift: Dict[int, Dict[str, int]] = {}
+            for obs in observations:
+                gen = obs.get("generation")
+                family = obs.get("law_family")
+                if gen is None or family is None:
+                    continue
+                gen = int(gen)
+                drift.setdefault(gen, {})
+                drift[gen][str(family)] = drift[gen].get(str(family), 0) + 1
+            if drift:
+                graph.add_relation(
+                    "atlas",
+                    "family_drift",
+                    {"counts": drift},
+                    evidence="symbolic",
+                )
+                graph.add_relation(
+                    "atlas",
+                    "family_drift_summary",
+                    {
+                        "generations": sorted(drift.keys()),
+                        "families": sorted({family for counts in drift.values() for family in counts.keys()}),
+                    },
+                    evidence="symbolic",
+                )
     graph.add_relation(
         "frequency",
         "evolved_relation",

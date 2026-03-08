@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 import numpy as np
 
 from .experiment_planner import propose_experiment
-from .observer import observe, observe_temporal
+from .observer import observe, observe_multifield, observe_temporal, observe_temporal_multi
 from .simulation import WaveSimulation
 from .spectral_universe import generate_universe_field
 from .field_dynamics import (
@@ -16,11 +16,13 @@ from .field_dynamics import (
     ReactionDiffusionConfig,
     SchrodingerConfig,
     WaveConfig,
+    CoupledFieldConfig,
     simulate_diffusion,
     simulate_oscillator,
     simulate_reaction_diffusion,
     simulate_schrodinger,
     simulate_wave,
+    simulate_coupled_fields,
 )
 from .spectral_lagrangian import SpectralConfig, simulate_field_from_modes
 from .renormalization import analyze_scales
@@ -31,28 +33,51 @@ from .interaction_detector import interaction_summary
 from .backend import backend_name
 from .scoring import diversity_penalty, novelty_bonus, signature_from_observation, universe_score
 from .phase_detector import detect_phase
+from .seed_perturbations import apply_seed_perturbations
 
 
 def _initial_field(config: Dict[str, Any]) -> np.ndarray:
     universe_type = config.get("universe_type", "random")
+    rng = np.random.default_rng(config.get("seed"))
     if universe_type != "random":
-        return generate_universe_field(
+        field = generate_universe_field(
             universe_type,
             size=config["size"],
             seed=config.get("seed"),
         )
-    sim = WaveSimulation(
-        size=config["size"],
-        steps=config["steps"],
-        wave_speed=config["wave_speed"],
-        wavelength=config["wavelength"],
-        amplitude=config["amplitude"],
-        pulse_position=config["pulse_position"],
-        boundary=config["boundary"],
-        initial_field=None,
-    )
-    grid, _ = sim.initialize()
-    return grid
+    else:
+        sim = WaveSimulation(
+            size=config["size"],
+            steps=config["steps"],
+            wave_speed=config["wave_speed"],
+            wavelength=config["wavelength"],
+            amplitude=config["amplitude"],
+            pulse_position=config["pulse_position"],
+            boundary=config["boundary"],
+            initial_field=None,
+        )
+        field, _ = sim.initialize()
+    seed_count = int(config.get("seed_count", 0))
+    if seed_count > 0:
+        field = apply_seed_perturbations(
+            field,
+            rng,
+            seed_count=seed_count,
+            seed_types=config.get("seed_types", ["gaussian", "dipole", "ring", "spiral"]),
+            amplitude_range=tuple(config.get("seed_amplitude_range", (0.5, 2.0))),
+            radius_range=tuple(config.get("seed_radius_range", (2.0, 8.0))),
+        )
+    return field
+
+
+def _initial_multifield(config: Dict[str, Any]) -> Dict[str, np.ndarray]:
+    psi = _initial_field(config)
+    phi_config = dict(config)
+    phi_seed = config.get("seed")
+    if phi_seed is not None:
+        phi_config["seed"] = phi_seed + 1
+    phi = _initial_field(phi_config)
+    return {"psi": psi, "phi": phi}
 
 
 def _build_batch_configs(
@@ -107,14 +132,7 @@ def _finalize_observation(
 
 
 def run_universe(config: Dict[str, Any]) -> Dict[str, Any]:
-    initial_field = None
-    universe_type = config.get("universe_type", "random")
-    if universe_type != "random":
-        initial_field = generate_universe_field(
-            universe_type,
-            size=config["size"],
-            seed=config.get("seed"),
-        )
+    initial_field = _initial_field(config)
     dynamics_type = config.get("dynamics_type", "static")
     sim = WaveSimulation(
         size=config["size"],
@@ -223,6 +241,40 @@ def run_universe(config: Dict[str, Any]) -> Dict[str, Any]:
             "resonance_spectrum": geometry["resonance_spectrum"],
             "trajectory": geometry["trajectory"],
         })
+    elif dynamics_type == "multi_field":
+        fields = _initial_multifield(config)
+        frames = simulate_coupled_fields(
+            fields["psi"],
+            fields["phi"],
+            CoupledFieldConfig(
+                steps=config["steps"],
+                dt=config.get("dt", 0.05),
+                diffusion_psi=config.get("diffusion_psi", 0.15),
+                diffusion_phi=config.get("diffusion_phi", 0.08),
+                coupling_linear=config.get("coupling_linear", 0.6),
+                coupling_quadratic=config.get("coupling_quadratic", 0.3),
+                coupling_cross=config.get("coupling_cross", 0.25),
+                psi_cubic=config.get("psi_cubic", 0.2),
+                phi_cubic=config.get("phi_cubic", 0.15),
+                psi_decay=config.get("psi_decay", 0.05),
+                phi_decay=config.get("phi_decay", 0.04),
+            ),
+        )
+        psi_final = frames[-1, 0]
+        phi_final = frames[-1, 1]
+        observation = observe_multifield({"psi": psi_final, "phi": phi_final})
+        observation.update(observe_temporal_multi(frames, ["psi", "phi"]))
+        if config.get("store_field"):
+            observation["field_psi"] = psi_final
+            observation["field_phi"] = phi_final
+            observation["field"] = psi_final
+        observation["wave_speed"] = float(config["wave_speed"])
+        observation["wavelength"] = float(config["wavelength"])
+        observation["frequency"] = observation["wave_speed"] / observation["wavelength"]
+        observation["score_raw"] = universe_score(observation)
+        observation["score"] = observation["score_raw"]
+        observation.update(detect_phase(observation))
+        return {"config": config, "observation": observation}
     else:
         grid = sim.run()
     observation = _finalize_observation(config, grid, frames, extra_observation)

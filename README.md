@@ -155,6 +155,67 @@ python -m physics_ai.main_loop --dynamics-type wave --batch-size 64
 
 Use `--debug-batch` to print batch and backend details for quick diagnostics.
 
+## Resonance ratio analysis
+
+The live dashboard now includes a **Resonance Ratios** tab that scans temporal FFT peaks for recurring ratios and compares them to known constants (e.g., $\phi$, $\sqrt{2}$, $\pi$).
+
+The analyzer extracts ratios from `temporal_fft` (when available) and writes the following fields into the live dashboard (and checkpoints when provided):
+
+- `dominant_ratio`
+- `ratio_cluster_id`
+- `ratio_constant_match`
+- `ratio_confidence`
+
+Run the dashboard to explore ratio histograms and regime associations:
+
+```bash
+streamlit run physics_ai/live_dashboard.py -- --run-dir experiments
+```
+
+## Symbolic law extraction
+
+The live dashboard now includes a **Law Discovery** tab that fits simple sparse models to temporal signals per regime. This provides early candidate equations such as:
+
+```
+dpsi/dt = -0.98 psi + 0.51 psi^3
+```
+
+The symbolic extractor uses the temporal signal stored in checkpoints and builds a small operator library (`psi`, `psi^3`, `psi^5`) to fit a sparse regression model per regime. When field snapshots are available, it extends the library with spatial terms (laplacian, biharmonic, and $|\psi|^2\psi$) and runs a behavioral validation loop by re-integrating the inferred law to score trajectory fidelity. The dashboard now also reports a **regime match score** from full-field re-simulation, an **operator importance** table, and **universality classes** based on law signatures.
+
+### Multi-field universes
+
+The engine now supports coupled two-field universes (`psi`, `phi`) for interaction-driven dynamics. These runs store per-field metrics, cross-field correlations, and temporal signals (`psi_temporal_signal`, `phi_temporal_signal`) for multi-field law extraction with cross terms such as `psi*phi` and `psi^2*phi`. Coupled-law validation re-simulates both fields together and reports a **coupled match score** alongside per-field regime match scores.
+
+The live dashboard includes a **Regime Explorer** to inspect $
+\psi$
+ and $
+\phi$
+ field snapshots, temporal signals, inferred laws, and side-by-side replay of coupled validation outputs. A **Regime Compare** tab highlights metric and law differences between two selected universes.
+
+The **Atlas Statistics** tab summarizes long-run trends: most common operators, dominant universality classes, top validation scores, and rare operator signatures. This provides a global view of the nonlinear equation landscape discovered so far.
+
+The **Regime Compare** tab now includes operator signature diffing to highlight which terms change between regimes, and Atlas Statistics reports stability scores per operator signature.
+
+Atlas Statistics now also includes an operator-pair stability heatmap, signature clustering, and discovery evolution charts (when generation metadata is available).
+
+Additional Atlas visuals include stability vs novelty scatter plots, heuristic family counts (reaction-diffusion, nonlinear wave, Ginzburg–Landau, Swift–Hohenberg), and operator drift charts across generations.
+
+Atlas Statistics also includes family-level stability heatmaps and validation score trends over generations when run metadata is available.
+
+New analytics include family operator-pair stability heatmaps and novelty–stability frontiers, plus law family labels persisted in checkpoints.
+
+Family-level validation and novelty trends over generations are now plotted in the Atlas Statistics tab when generation metadata is available.
+
+Family-level stability vs novelty scatterplots and family drift charts are included to highlight which PDE families persist or shift over time. Family novelty–stability frontiers now include validation spread bands, and regime summaries annotate dominant PDE family descriptors.
+
+Family drift series are persisted to checkpoints, and the Regime Explorer displays the dominant law family label.
+
+Regime Explorer now surfaces family-specific descriptors and operator trend summaries, and Atlas Statistics includes top operators per family.
+
+Behavioral regime summaries now include a dominant law family when available, and the knowledge graph records family distributions across runs.
+
+Knowledge graph relations now include optional target objects and export summary statistics (node counts, relation counts, evidence totals) to `graph_summary.json` in checkpoint runs. Full relation lists are persisted to `graph_relations.json` and can be explored in the dashboard’s Knowledge Graph tab with a node-edge visualization, colored by relation type with node sizing by degree, hover tooltips, a focus filter for related edges, and edge thickness scaled by confidence.
+
 ## Lagrangian discovery
 
 For time-evolving universes, the engine now scores candidate Lagrangians against the observed temporal signal and stores the best result in the knowledge graph.
@@ -299,7 +360,7 @@ Persist experiment outputs (config, laws, universes, particles, metadata) with:
 python -m physics_ai.main_loop --dynamics-type wave --batch-size 64 --checkpoint-dir experiments
 ```
 
-Each run creates `run_<timestamp>_<id>` folders containing `config.json`, batch-sharded `universes_batch_*.parquet`, `particles_batch_*.parquet`, `laws.json`, and `metadata.json`.
+Each run creates `run_<timestamp>_<id>` folders containing `config.json`, batch-sharded `universes_batch_*.parquet`, `particles_batch_*.parquet`, `laws.json`, `metadata.json`, `graph_summary.json`, and `graph_relations.json` when a concept graph is available. Family drift snapshots are persisted to `family_drift.json`.
 
 Use `--resume` with the same checkpoint directory to continue from the most recent run:
 

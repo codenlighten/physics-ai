@@ -51,10 +51,40 @@ def _universe_rows(
             "phase": obs.get("phase"),
             "phase_confidence": obs.get("phase_confidence"),
             "temporal_signal": obs.get("temporal_signal"),
+            "temporal_signal_psi": obs.get("psi_temporal_signal") or obs.get("temporal_signal_psi"),
+            "temporal_signal_phi": obs.get("phi_temporal_signal") or obs.get("temporal_signal_phi"),
             "vortex_count": obs.get("vortex_count"),
             "nodal_loop_count": obs.get("nodal_loop_count"),
             "defect_density": obs.get("defect_density"),
             "coherence_length": obs.get("coherence_length"),
+            "psi_defect_density": obs.get("psi_defect_density"),
+            "phi_defect_density": obs.get("phi_defect_density"),
+            "psi_spectral_entropy": obs.get("psi_spectral_entropy"),
+            "phi_spectral_entropy": obs.get("phi_spectral_entropy"),
+            "cross_field_corr": obs.get("cross_field_corr"),
+            "cross_field_temporal_corr": obs.get("cross_field_temporal_corr"),
+            "local_density": obs.get("local_density"),
+            "density_score": obs.get("density_score"),
+            "cluster_id": obs.get("cluster_id"),
+            "cluster_probability": obs.get("cluster_probability"),
+            "cluster_size": obs.get("cluster_size"),
+            "behavior_cluster_id": obs.get("behavior_cluster_id"),
+            "behavior_cluster_probability": obs.get("behavior_cluster_probability"),
+            "behavior_cluster_size": obs.get("behavior_cluster_size"),
+            "regime_signature": obs.get("regime_signature"),
+            "dominant_ratio": obs.get("dominant_ratio"),
+            "ratio_cluster_id": obs.get("ratio_cluster_id"),
+            "ratio_constant_match": obs.get("ratio_constant_match"),
+            "ratio_confidence": obs.get("ratio_confidence"),
+            "law_equation": obs.get("law_equation"),
+            "law_terms": obs.get("law_terms"),
+            "law_coefficients": obs.get("law_coefficients"),
+            "law_fit_score": obs.get("law_fit_score"),
+            "law_validation_score": obs.get("law_validation_score"),
+            "law_family": obs.get("law_family"),
+            "field": obs.get("field"),
+            "field_psi": obs.get("field_psi"),
+            "field_phi": obs.get("field_phi"),
         })
     return rows
 
@@ -184,6 +214,22 @@ def save_batch(
 
     with open(run_path / "laws.json", "w", encoding="utf-8") as handle:
         json.dump(_law_rows(results), handle, indent=2, default=_serialize)
+
+    graph = results.get("graph")
+    if graph and hasattr(graph, "relations"):
+        with open(run_path / "graph_relations.json", "w", encoding="utf-8") as handle:
+            json.dump(graph.relations, handle, indent=2, default=_serialize)
+        if hasattr(graph, "summary_stats"):
+            with open(run_path / "graph_summary.json", "w", encoding="utf-8") as handle:
+                json.dump(graph.summary_stats(), handle, indent=2, default=_serialize)
+        drift_entries = [
+            rel
+            for rel in graph.relations
+            if rel.get("relation") in {"family_drift", "family_drift_summary"}
+        ]
+        if drift_entries:
+            with open(run_path / "family_drift.json", "w", encoding="utf-8") as handle:
+                json.dump(drift_entries, handle, indent=2, default=_serialize)
 
     metadata_path = run_path / "metadata.json"
     metadata = {}

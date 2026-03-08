@@ -41,6 +41,7 @@ def _base_score(observation: Dict[str, Any]) -> float:
 def signature_from_observation(observation: Dict[str, Any]) -> Dict[str, float | str]:
     particles = observation.get("particles") or {}
     dispersion = observation.get("dispersion") or observation.get("dispersion_law")
+    cross_corr = observation.get("cross_field_corr")
     return {
         "particle_count": float(particles.get("particle_count", 0.0)),
         "resonance_strength": float(observation.get("resonance_strength", 0.0)),
@@ -48,6 +49,7 @@ def signature_from_observation(observation: Dict[str, Any]) -> Dict[str, float |
         "variance": float(observation.get("variance", 0.0)),
         "temporal_drift": float(observation.get("temporal_energy_drift_ratio", 0.0)),
         "dispersion_type": str((dispersion or {}).get("law_type", "unknown")),
+        "cross_field_corr": float(cross_corr) if cross_corr is not None else 0.0,
     }
 
 
@@ -66,6 +68,7 @@ def diversity_penalty(
         diff += abs(float(signature.get("curvature_strength", 0.0)) - float(ref.get("curvature_strength", 0.0)))
         diff += abs(float(signature.get("variance", 0.0)) - float(ref.get("variance", 0.0)))
         diff += abs(float(signature.get("temporal_drift", 0.0)) - float(ref.get("temporal_drift", 0.0)))
+        diff += abs(float(signature.get("cross_field_corr", 0.0)) - float(ref.get("cross_field_corr", 0.0)))
         if signature.get("dispersion_type") == ref.get("dispersion_type"):
             diff += 0.5
         penalties.append(1.0 / (1.0 + diff))
@@ -87,6 +90,7 @@ def novelty_bonus(
         diff += abs(float(signature.get("curvature_strength", 0.0)) - float(ref.get("curvature_strength", 0.0)))
         diff += abs(float(signature.get("variance", 0.0)) - float(ref.get("variance", 0.0)))
         diff += abs(float(signature.get("temporal_drift", 0.0)) - float(ref.get("temporal_drift", 0.0)))
+        diff += abs(float(signature.get("cross_field_corr", 0.0)) - float(ref.get("cross_field_corr", 0.0)))
         if signature.get("dispersion_type") != ref.get("dispersion_type"):
             diff += 0.5
         distances.append(diff)

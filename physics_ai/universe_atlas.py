@@ -37,6 +37,12 @@ def build_feature_matrix(df: pd.DataFrame) -> Tuple[np.ndarray, List[str]]:
         "energy_localization",
         "diversity_penalty",
         "novelty_bonus",
+        "psi_defect_density",
+        "phi_defect_density",
+        "psi_spectral_entropy",
+        "phi_spectral_entropy",
+        "cross_field_corr",
+        "cross_field_temporal_corr",
     ]
     features = []
     feature_names: List[str] = []

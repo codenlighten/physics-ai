@@ -31,6 +31,21 @@ def energy_density(field: np.ndarray) -> np.ndarray:
     return grad_x ** 2 + grad_y ** 2 + field ** 2
 
 
+def localization_score(field: np.ndarray) -> float:
+    energy = energy_density(field)
+    total = float(np.sum(energy)) if np.sum(energy) != 0 else 1.0
+    return float(np.max(energy) / total)
+
+
+def coherence_score(field: np.ndarray) -> float:
+    if np.iscomplexobj(field):
+        phase = np.angle(field)
+        variance = float(np.var(phase))
+    else:
+        variance = float(np.var(field))
+    return float(1.0 / (1.0 + variance))
+
+
 def _local_maxima(field: np.ndarray) -> np.ndarray:
     padded = np.pad(field, 1, mode="edge")
     center = padded[1:-1, 1:-1]
@@ -81,13 +96,24 @@ def track_particles(peaks_by_frame: List[np.ndarray]) -> List[ParticleTrack]:
 
 def particle_summary(frames: np.ndarray, threshold: float = 0.6) -> Dict[str, Any]:
     if frames.size == 0:
-        return {"particle_count": 0, "tracks": []}
+        return {
+            "particle_count": 0,
+            "tracks": [],
+            "localization": 0.0,
+            "persistence": 0.0,
+            "coherence": 0.0,
+            "particle_score": 0.0,
+        }
     magnitudes = np.abs(frames)
     peaks_by_frame = []
     for frame in magnitudes:
         energy = energy_density(frame)
         peaks_by_frame.append(detect_peaks(energy, threshold=threshold))
     tracks = track_particles(peaks_by_frame)
+    localization = float(np.mean([localization_score(frame) for frame in magnitudes]))
+    coherence = float(np.mean([coherence_score(frame) for frame in magnitudes]))
+    persistence = float(np.mean([track.lifetime for track in tracks])) if tracks else 0.0
+    particle_score = float(0.4 * localization + 0.3 * coherence + 0.3 * persistence)
     return {
         "particle_count": len(tracks),
         "tracks": [
@@ -99,4 +125,8 @@ def particle_summary(frames: np.ndarray, threshold: float = 0.6) -> Dict[str, An
             }
             for track in tracks
         ],
+        "localization": localization,
+        "persistence": persistence,
+        "coherence": coherence,
+        "particle_score": particle_score,
     }
