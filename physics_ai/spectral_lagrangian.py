@@ -7,6 +7,8 @@ from typing import List, Tuple
 
 import numpy as np
 
+from .backend import as_xp, get_xp, to_numpy
+
 
 @dataclass
 class SpectralConfig:
@@ -20,23 +22,28 @@ class SpectralConfig:
 
 def generate_modes(size: int, modes: int, seed: int | None = None) -> List[np.ndarray]:
     rng = np.random.default_rng(seed)
-    x = np.linspace(0, 2 * np.pi, size)
-    y = np.linspace(0, 2 * np.pi, size)
-    xx, yy = np.meshgrid(x, y)
+    xp = get_xp()
+    x = xp.linspace(0, 2 * xp.pi, size)
+    y = xp.linspace(0, 2 * xp.pi, size)
+    xx, yy = xp.meshgrid(x, y)
     basis: List[np.ndarray] = []
     for _ in range(modes):
         kx = rng.integers(1, 6)
         ky = rng.integers(1, 6)
         phase = rng.random() * 2 * np.pi
-        basis.append(np.sin(kx * xx + ky * yy + phase))
+        basis.append(to_numpy(xp.sin(kx * xx + ky * yy + phase)))
     return basis
 
 
 def step_modes(a: np.ndarray, v: np.ndarray, omegas: np.ndarray, dt: float) -> Tuple[np.ndarray, np.ndarray]:
-    accel = -(omegas ** 2) * a
-    v = v + accel * dt
-    a = a + v * dt
-    return a, v
+    xp = get_xp()
+    a_xp = as_xp(a)
+    v_xp = as_xp(v)
+    omegas_xp = as_xp(omegas)
+    accel = -(omegas_xp ** 2) * a_xp
+    v_xp = v_xp + accel * dt
+    a_xp = a_xp + v_xp * dt
+    return to_numpy(a_xp), to_numpy(v_xp)
 
 
 def simulate_modes(config: SpectralConfig) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -52,10 +59,11 @@ def simulate_modes(config: SpectralConfig) -> Tuple[np.ndarray, np.ndarray, np.n
 
 
 def reconstruct_field(amplitudes: np.ndarray, basis: List[np.ndarray]) -> np.ndarray:
-    field = np.zeros_like(basis[0])
+    xp = get_xp()
+    field = xp.zeros_like(as_xp(basis[0]))
     for amp, mode in zip(amplitudes, basis):
-        field += amp * mode
-    return field
+        field += amp * as_xp(mode)
+    return to_numpy(field)
 
 
 def simulate_field_from_modes(size: int, config: SpectralConfig) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

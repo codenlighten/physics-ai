@@ -1,0 +1,5 @@
+universe_count: 120
+generations: 5
+batch_size: 16
+dynamics_type: wave
+universe_type: spectral

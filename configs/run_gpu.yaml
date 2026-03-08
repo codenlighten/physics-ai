@@ -1,0 +1,6 @@
+universe_count: 64
+generations: 3
+batch_size: 16
+dynamics_type: wave
+universe_type: random
+cuda: true

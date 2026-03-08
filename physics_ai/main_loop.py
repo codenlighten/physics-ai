@@ -27,6 +27,24 @@ from .checkpoint import (
     load_checkpoint_metadata,
     save_batch,
 )
+from .run_registry import append_run_entry
+
+try:
+    import yaml
+except Exception:  # pragma: no cover - optional dependency
+    yaml = None
+
+
+def _load_run_config(path: str | None) -> Dict[str, Any]:
+    if not path:
+        return {}
+    if yaml is None:
+        raise RuntimeError("PyYAML is required to load run configs.")
+    with open(path, "r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, dict):
+        raise ValueError("Run config must be a YAML mapping.")
+    return data
 
 
 def _aggregate_symbolic_features(observations: List[Dict[str, Any]]) -> List[float]:
@@ -411,6 +429,7 @@ def main() -> None:
     parser.add_argument("--debug-batch", action="store_true")
     parser.add_argument("--checkpoint-dir", default=None)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--config", default=None, help="Path to a YAML run config.")
     args = parser.parse_args()
 
     if args.cuda:
@@ -421,6 +440,7 @@ def main() -> None:
     resume_start = 0
     resume_from = None
     resume_config: Dict[str, Any] | None = None
+    file_config = _load_run_config(args.config)
     run_dir = None
     batch_index = 0
     if args.checkpoint_dir:
@@ -433,17 +453,23 @@ def main() -> None:
             resume_from = str(metadata["resume_from"])
 
     base_config = resume_config or {}
+    if file_config:
+        base_config = {**file_config, **base_config}
     universe_type = args.universe_type if args.universe_type is not None else base_config.get("universe_type")
     dynamics_type = args.dynamics_type if args.dynamics_type is not None else base_config.get("dynamics_type")
     seed = args.seed if args.seed is not None else base_config.get("seed")
     batch_size = args.batch_size if args.batch_size is not None else base_config.get("batch_size", 1)
+    universe_count = args.universe_count if args.universe_count is not None else base_config.get("universe_count", 30)
+    generations = args.generations if args.generations is not None else base_config.get("generations", 10)
+    discovery_log_path = args.discovery_log_path if args.discovery_log_path is not None else base_config.get("discovery_log_path")
+    proposal_model_path = args.proposal_model_path if args.proposal_model_path is not None else base_config.get("proposal_model_path")
 
     results = run_experiment(
-        universe_count=args.universe_count,
+        universe_count=universe_count,
         seed=seed,
-        generations=args.generations,
-        discovery_log_path=args.discovery_log_path,
-        proposal_model_path=args.proposal_model_path,
+        generations=generations,
+        discovery_log_path=discovery_log_path,
+        proposal_model_path=proposal_model_path,
         universe_type=universe_type,
         dynamics_type=dynamics_type,
         store_fields=args.visualize,
@@ -478,6 +504,19 @@ def main() -> None:
             resume_from=resume_from,
         )
         print(f"Checkpoint saved to: {run_dir}")
+
+        append_run_entry(
+            Path(args.checkpoint_dir) / "runs.jsonl",
+            {
+                "run_dir": str(run_dir),
+                "config": run_config,
+                "universes": results.get("dataset") and len(results["dataset"]),
+                "best_hypothesis": str(results.get("best_hypothesis")),
+                "inverse_law": results.get("inverse_law"),
+                "symbolic_law": results.get("symbolic_law"),
+                "lagrangian": results.get("lagrangian"),
+            },
+        )
 
     if args.visualize:
         from .visualization import render_summary

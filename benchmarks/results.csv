@@ -1,0 +1,2 @@
+backend,mode,batch,size,steps,elapsed_s,per_step_ms
+numpy,wave,4,8,3,0.000206,0.068721

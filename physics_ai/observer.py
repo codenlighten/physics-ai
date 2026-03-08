@@ -15,29 +15,33 @@ from .particle_detector import particle_summary
 
 
 def observe(grid: np.ndarray) -> Dict[str, Any]:
-    spectrum = np.abs(np.fft.fft2(grid))
-    dominant_index = np.unravel_index(np.argmax(spectrum), spectrum.shape)
+    xp = get_xp()
+    grid_xp = as_xp(grid)
+    spectrum = xp.abs(xp.fft.fft2(grid_xp))
+    spectrum_np = to_numpy(spectrum)
+    dominant_index = np.unravel_index(np.argmax(spectrum_np), spectrum_np.shape)
     dominant_freq = float(max(dominant_index))
-    spectrum_sum = float(np.sum(spectrum))
+    spectrum_sum = float(np.sum(spectrum_np))
     if spectrum_sum == 0:
         spectral_entropy = 0.0
     else:
-        probs = spectrum.flatten() / spectrum_sum
+        probs = spectrum_np.flatten() / spectrum_sum
         entropy = -np.sum(probs * np.log(probs + 1e-12))
         spectral_entropy = float(entropy / np.log(probs.size)) if probs.size > 1 else 0.0
-    energy = grid ** 2
-    energy_sum = float(np.sum(energy)) if np.sum(energy) != 0 else 1.0
-    energy_localization = float(np.max(energy) / energy_sum)
+    energy = grid_xp ** 2
+    energy_np = to_numpy(energy)
+    energy_sum = float(np.sum(energy_np)) if np.sum(energy_np) != 0 else 1.0
+    energy_localization = float(np.max(energy_np) / energy_sum)
     rotation_order, rotation_score = rotation_symmetry(grid)
     reflection_score = reflection_symmetry(grid)
     so2_score = so2_symmetry_score(grid)
 
     metrics: Dict[str, Any] = {
-        "energy": float(np.sum(grid ** 2)),
-        "variance": float(np.var(grid)),
-        "peak": float(np.max(grid)),
+    "energy": float(np.sum(energy_np)),
+    "variance": float(np.var(to_numpy(grid_xp))),
+    "peak": float(np.max(to_numpy(grid_xp))),
         "dominant_frequency": dominant_freq,
-        "spectrum_mean": float(np.mean(spectrum)),
+    "spectrum_mean": float(np.mean(spectrum_np)),
         "spectral_entropy": spectral_entropy,
         "energy_localization": energy_localization,
         "symmetry_group": classify_group(grid),
@@ -117,15 +121,17 @@ def observe_temporal(frames: np.ndarray) -> Dict[str, Any]:
             "temporal_fft": [],
             "temporal_signal": [],
         }
-    magnitudes = np.abs(frames)
-    signal = magnitudes.mean(axis=(1, 2))
-    energy_series = np.sum(magnitudes ** 2, axis=(1, 2))
+    xp = get_xp()
+    frames_xp = as_xp(frames)
+    magnitudes = xp.abs(frames_xp)
+    signal = to_numpy(xp.mean(magnitudes, axis=(1, 2)))
+    energy_series = to_numpy(xp.sum(magnitudes ** 2, axis=(1, 2)))
     start_energy = float(energy_series[0])
     end_energy = float(energy_series[-1])
     mean_energy = float(np.mean(energy_series)) if np.mean(energy_series) != 0 else 1.0
     energy_drift_ratio = float(np.std(energy_series) / mean_energy)
     momentum_series = []
-    for frame in magnitudes:
+    for frame in to_numpy(magnitudes):
         grad_x, grad_y = np.gradient(frame)
         momentum_series.append(float(np.sum(grad_x ** 2 + grad_y ** 2)))
     momentum_mean = float(np.mean(momentum_series)) if np.mean(momentum_series) != 0 else 1.0
@@ -141,6 +147,46 @@ def observe_temporal(frames: np.ndarray) -> Dict[str, Any]:
     }
     metrics.update(particle_summary(frames))
     return metrics
+
+
+def observe_temporal_batch(frames: np.ndarray) -> List[Dict[str, Any]]:
+    if frames.size == 0:
+        return []
+    if frames.ndim != 4:
+        raise ValueError("Expected frames with shape [T, B, X, Y].")
+    xp = get_xp()
+    frames_xp = as_xp(frames)
+    magnitudes = xp.abs(frames_xp)
+    signal = to_numpy(xp.mean(magnitudes, axis=(2, 3)))
+    energy_series = to_numpy(xp.sum(magnitudes ** 2, axis=(2, 3)))
+    fft_values = to_numpy(xp.abs(xp.fft.rfft(as_xp(signal), axis=0)))
+
+    results: List[Dict[str, Any]] = []
+    batch_size = signal.shape[1]
+    for idx in range(batch_size):
+        series = energy_series[:, idx]
+        start_energy = float(series[0]) if series.size else 0.0
+        end_energy = float(series[-1]) if series.size else 0.0
+        mean_energy = float(np.mean(series)) if np.mean(series) != 0 else 1.0
+        energy_drift_ratio = float(np.std(series) / mean_energy)
+        momentum_series = []
+        for frame in to_numpy(magnitudes[:, idx]):
+            grad_x, grad_y = np.gradient(frame)
+            momentum_series.append(float(np.sum(grad_x ** 2 + grad_y ** 2)))
+        momentum_mean = float(np.mean(momentum_series)) if np.mean(momentum_series) != 0 else 1.0
+        momentum_drift_ratio = float(np.std(momentum_series) / momentum_mean)
+        metrics = {
+            "temporal_energy_start": start_energy,
+            "temporal_energy_end": end_energy,
+            "temporal_energy_drift": end_energy - start_energy,
+            "temporal_energy_drift_ratio": energy_drift_ratio,
+            "temporal_momentum_drift_ratio": momentum_drift_ratio,
+            "temporal_fft": [float(value) for value in fft_values[:, idx]],
+            "temporal_signal": [float(value) for value in signal[:, idx]],
+        }
+        metrics.update(particle_summary(to_numpy(frames_xp[:, idx])))
+        results.append(metrics)
+    return results
 
 
 def observe_temporal_multi(frames: np.ndarray, field_names: Iterable[str]) -> Dict[str, Any]:
@@ -195,3 +241,19 @@ def observe_temporal_multi(frames: np.ndarray, field_names: Iterable[str]) -> Di
     if temporal_drifts:
         metrics["temporal_energy_drift_ratio"] = float(np.mean(temporal_drifts))
     return metrics
+
+
+def observe_temporal_multi_batch(frames: np.ndarray, field_names: Iterable[str]) -> List[Dict[str, Any]]:
+    if frames.ndim != 5:
+        raise ValueError("Expected frames with shape [T, F, B, X, Y].")
+    names = list(field_names)
+    if not names:
+        return []
+    if frames.shape[1] != len(names):
+        raise ValueError("Field dimension does not match field names length.")
+    batch_size = frames.shape[2]
+    results: List[Dict[str, Any]] = []
+    for idx in range(batch_size):
+        metrics = observe_temporal_multi(frames[:, :, idx], names)
+        results.append(metrics)
+    return results

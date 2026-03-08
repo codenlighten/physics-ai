@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .backend import as_xp, get_xp, to_numpy
+
 
 @dataclass
 class WaveSimulation:
@@ -20,28 +22,32 @@ class WaveSimulation:
     initial_field: np.ndarray | None = None
 
     def initialize(self) -> tuple[np.ndarray, np.ndarray]:
+        xp = get_xp()
         if self.initial_field is not None:
             if self.initial_field.shape != (self.size, self.size):
                 raise ValueError("Initial field shape does not match simulation size.")
-            grid = self.initial_field.astype(float, copy=True)
+            grid = as_xp(self.initial_field).astype(float, copy=True)
         else:
-            x = np.linspace(0, self.size - 1, self.size)
-            y = np.linspace(0, self.size - 1, self.size)
-            xx, yy = np.meshgrid(x, y)
-            phase = 2 * np.pi * (xx / self.wavelength)
-            grid = self.amplitude * np.sin(phase)
+            x = xp.linspace(0, self.size - 1, self.size)
+            y = xp.linspace(0, self.size - 1, self.size)
+            xx, yy = xp.meshgrid(x, y)
+            phase = 2 * xp.pi * (xx / self.wavelength)
+            grid = self.amplitude * xp.sin(phase)
         if self.pulse_position is not None:
             pulse = max(0, min(self.size - 1, self.pulse_position))
             grid[pulse, pulse] += self.amplitude
-        velocity = np.zeros_like(grid)
+        velocity = xp.zeros_like(grid)
         return grid, velocity
 
     def step(self, grid: np.ndarray, velocity: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        xp = get_xp()
+        grid = as_xp(grid)
+        velocity = as_xp(velocity)
         laplacian = (
-            np.roll(grid, 1, 0)
-            + np.roll(grid, -1, 0)
-            + np.roll(grid, 1, 1)
-            + np.roll(grid, -1, 1)
+            xp.roll(grid, 1, 0)
+            + xp.roll(grid, -1, 0)
+            + xp.roll(grid, 1, 1)
+            + xp.roll(grid, -1, 1)
             - 4 * grid
         )
         velocity = velocity + (self.wave_speed ** 2) * laplacian * self.dt
@@ -57,4 +63,4 @@ class WaveSimulation:
         grid, velocity = self.initialize()
         for _ in range(self.steps):
             grid, velocity = self.step(grid, velocity)
-        return grid
+        return to_numpy(grid)

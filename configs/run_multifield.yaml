@@ -1,0 +1,5 @@
+universe_count: 48
+generations: 3
+batch_size: 8
+dynamics_type: multi_field
+universe_type: random

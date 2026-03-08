@@ -229,11 +229,33 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Research lab onboarding
+
+For a fast clone-and-run flow, use the lab setup guide and bootstrap script:
+
+- `docs/lab_setup.md`
+- `scripts/bootstrap_lab.sh`
+- `scripts/run_lab_pipeline.sh`
+- `Makefile` (optional: `make setup`, `make run`, `make atlas`, `make gpu`, `make clean`)
+
 Run a discovery experiment:
 
 ```bash
 python -m physics_ai.main_loop
 ```
+
+Run with a preset config:
+
+```bash
+python -m physics_ai.main_loop --config configs/run_quick.yaml
+```
+
+Additional presets:
+
+- `configs/run_deep.yaml`
+- `configs/run_gpu.yaml`
+- `configs/run_multifield.yaml`
+- `configs/run_reaction.yaml`
 
 Run a wave universe:
 
@@ -252,6 +274,40 @@ Run tests:
 ```bash
 pytest -q
 ```
+
+## Benchmarking
+
+Measure batched dynamics throughput with:
+
+```bash
+python -m physics_ai.benchmark_runner --mode wave --batch 64 --size 64 --steps 80
+```
+
+Run on GPU by enabling the CUDA backend:
+
+```bash
+PHYSICS_AI_CUDA=1 python -m physics_ai.benchmark_runner --mode wave --batch 64 --size 64 --steps 80
+```
+
+Write results to CSV for later plotting:
+
+```bash
+python -m physics_ai.benchmark_runner --mode wave --batch 64 --size 64 --steps 80 --output benchmarks/results.csv
+```
+
+## Run registry
+
+When you run with `--checkpoint-dir`, the lab writes a `runs.jsonl` file in that directory with the run config and summary metadata for later analysis.
+
+## GPU acceleration
+
+Install CuPy for your CUDA version and enable GPU execution with:
+
+```bash
+PHYSICS_AI_CUDA=1 python -m physics_ai.main_loop --dynamics-type wave
+```
+
+If CUDA is requested but CuPy is not installed, the engine falls back to CPU execution.
 
 ## Evolutionary universe search
 

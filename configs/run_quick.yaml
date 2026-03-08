@@ -1,0 +1,5 @@
+universe_count: 24
+generations: 2
+batch_size: 8
+dynamics_type: wave
+universe_type: random

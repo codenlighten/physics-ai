@@ -7,6 +7,8 @@ from typing import Literal
 
 import numpy as np
 
+from .backend import as_xp, get_xp, to_numpy
+
 
 UniverseType = Literal["random", "spectral", "harmonic", "phi"]
 
@@ -34,36 +36,39 @@ class PhiConfig:
 
 def generate_spectral_field(config: SpectralConfig) -> np.ndarray:
     rng = np.random.default_rng(config.seed)
-    x = np.linspace(0, 2 * np.pi, config.size)
-    y = np.linspace(0, 2 * np.pi, config.size)
-    xx, yy = np.meshgrid(x, y)
-    field = np.zeros((config.size, config.size))
+    xp = get_xp()
+    x = xp.linspace(0, 2 * xp.pi, config.size)
+    y = xp.linspace(0, 2 * xp.pi, config.size)
+    xx, yy = xp.meshgrid(x, y)
+    field = xp.zeros((config.size, config.size))
 
     for _ in range(config.modes):
         kx = rng.integers(config.k_min, config.k_max + 1)
         ky = rng.integers(config.k_min, config.k_max + 1)
         phase = rng.random() * 2 * np.pi
         amp = rng.random()
-        field += amp * np.sin(kx * xx + ky * yy + phase)
+        field += amp * xp.sin(kx * xx + ky * yy + phase)
 
-    return field
+    return to_numpy(field)
 
 
 def generate_harmonic_field(config: HarmonicConfig) -> np.ndarray:
-    x = np.linspace(0, 2 * np.pi, config.size)
-    xx, yy = np.meshgrid(x, x)
-    field = np.zeros((config.size, config.size))
+    xp = get_xp()
+    x = xp.linspace(0, 2 * xp.pi, config.size)
+    xx, yy = xp.meshgrid(x, x)
+    field = xp.zeros((config.size, config.size))
     for n in range(1, config.harmonics + 1):
-        field += (1 / n) * np.sin(config.base * n * xx) * np.sin(config.base * n * yy)
-    return field
+        field += (1 / n) * xp.sin(config.base * n * xx) * xp.sin(config.base * n * yy)
+    return to_numpy(field)
 
 
 def generate_phi_field(config: PhiConfig) -> np.ndarray:
     phi = (1 + 5 ** 0.5) / 2
-    x = np.linspace(0, 2 * np.pi, config.size)
-    base = np.sin(x) + np.sin(phi * x) + np.sin(x / phi)
-    field = np.outer(base, base)
-    return field
+    xp = get_xp()
+    x = xp.linspace(0, 2 * xp.pi, config.size)
+    base = xp.sin(x) + xp.sin(phi * x) + xp.sin(x / phi)
+    field = xp.outer(base, base)
+    return to_numpy(field)
 
 
 def generate_universe_field(

@@ -7,7 +7,14 @@ from typing import Dict, Any, List
 import numpy as np
 
 from .experiment_planner import propose_experiment
-from .observer import observe, observe_multifield, observe_temporal, observe_temporal_multi
+from .observer import (
+    observe,
+    observe_multifield,
+    observe_temporal,
+    observe_temporal_batch,
+    observe_temporal_multi,
+    observe_temporal_multi_batch,
+)
 from .simulation import WaveSimulation
 from .spectral_universe import generate_universe_field
 from .field_dynamics import (
@@ -30,7 +37,7 @@ from .gauge_discovery import gauge_invariance, gauge_summary
 from .geometry_universe import GeometryConfig, simulate_geometry, simulate_resonant_geometry
 from .particle_detector import particle_summary
 from .interaction_detector import interaction_summary
-from .backend import backend_name
+from .backend import backend_name, to_numpy
 from .scoring import diversity_penalty, novelty_bonus, signature_from_observation, universe_score
 from .phase_detector import detect_phase
 from .seed_perturbations import apply_seed_perturbations
@@ -56,7 +63,8 @@ def _initial_field(config: Dict[str, Any]) -> np.ndarray:
             boundary=config["boundary"],
             initial_field=None,
         )
-        field, _ = sim.initialize()
+    field, _ = sim.initialize()
+    field = to_numpy(field)
     seed_count = int(config.get("seed_count", 0))
     if seed_count > 0:
         field = apply_seed_perturbations(
@@ -103,13 +111,14 @@ def _finalize_observation(
     grid: np.ndarray,
     frames: np.ndarray | None,
     extra_observation: Dict[str, Any] | None = None,
+    temporal_metrics: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     observation = observe(grid)
     if extra_observation:
         observation.update(extra_observation)
     if frames is not None:
-        temporal_metrics = observe_temporal(frames)
-        observation.update(temporal_metrics)
+        metrics = temporal_metrics or observe_temporal(frames)
+        observation.update(metrics)
         if frames.shape[1] >= 8 and frames.shape[2] >= 8:
             observation["renormalization"] = analyze_scales(frames)
         if np.iscomplexobj(frames):
@@ -289,7 +298,7 @@ def run_universe_batch(
 ) -> List[Dict[str, Any]]:
     configs = _build_batch_configs(base_config, seeds, store_fields)
     dynamics_type = base_config.get("dynamics_type", "static")
-    if dynamics_type not in {"wave", "diffusion", "schrodinger"}:
+    if dynamics_type not in {"wave", "diffusion", "schrodinger", "reaction_diffusion", "multi_field"}:
         return [run_universe(config) for config in configs]
 
     initial_fields = np.stack([_initial_field(config) for config in configs])
@@ -320,6 +329,44 @@ def run_universe_batch(
             DiffusionConfig(steps=base_config["steps"]),
         )
         grids = frames[-1]
+    elif dynamics_type == "reaction_diffusion":
+        secondary_fields = np.stack([
+            np.random.default_rng(config.get("seed")).random(initial_fields.shape[1:])
+            for config in configs
+        ])
+        field_a, field_b = simulate_reaction_diffusion(
+            initial_fields,
+            secondary_fields,
+            ReactionDiffusionConfig(steps=base_config["steps"]),
+        )
+        grids = field_a
+    elif dynamics_type == "multi_field":
+        psi_fields = []
+        phi_fields = []
+        for config in configs:
+            fields = _initial_multifield(config)
+            psi_fields.append(fields["psi"])
+            phi_fields.append(fields["phi"])
+        psi_batch = np.stack(psi_fields)
+        phi_batch = np.stack(phi_fields)
+        frames = simulate_coupled_fields(
+            psi_batch,
+            phi_batch,
+            CoupledFieldConfig(
+                steps=base_config["steps"],
+                dt=base_config.get("dt", 0.05),
+                diffusion_psi=base_config.get("diffusion_psi", 0.15),
+                diffusion_phi=base_config.get("diffusion_phi", 0.08),
+                coupling_linear=base_config.get("coupling_linear", 0.6),
+                coupling_quadratic=base_config.get("coupling_quadratic", 0.3),
+                coupling_cross=base_config.get("coupling_cross", 0.25),
+                psi_cubic=base_config.get("psi_cubic", 0.2),
+                phi_cubic=base_config.get("phi_cubic", 0.15),
+                psi_decay=base_config.get("psi_decay", 0.05),
+                phi_decay=base_config.get("phi_decay", 0.04),
+            ),
+        )
+        grids = frames[-1, 0]
     else:
         frames = simulate_schrodinger(
             initial_fields,
@@ -327,11 +374,50 @@ def run_universe_batch(
         )
         grids = np.real(frames[-1])
 
+    temporal_batch_metrics: List[Dict[str, Any]] | None = None
+    if frames is not None and dynamics_type in {"wave", "diffusion", "schrodinger"}:
+        temporal_batch_metrics = observe_temporal_batch(frames)
+
     results: List[Dict[str, Any]] = []
+    multi_field_temporal: List[Dict[str, Any]] | None = None
+    if dynamics_type == "multi_field" and frames is not None:
+        multi_field_temporal = observe_temporal_multi_batch(frames, ["psi", "phi"])
+
     for idx, config in enumerate(configs):
-        batch_frames = frames[:, idx] if frames is not None else None
         grid = grids[idx]
-        observation = _finalize_observation(config, grid, batch_frames)
+        if dynamics_type == "reaction_diffusion":
+            batch_frames = np.stack([grid, field_b[idx]])
+            observation = _finalize_observation(config, grid, batch_frames)
+        elif dynamics_type == "multi_field" and frames is not None:
+            batch_frames = frames[:, :, idx]
+            psi_final = frames[-1, 0, idx]
+            phi_final = frames[-1, 1, idx]
+            observation = observe_multifield({"psi": psi_final, "phi": phi_final})
+            if multi_field_temporal is not None:
+                observation.update(multi_field_temporal[idx])
+            else:
+                observation.update(observe_temporal_multi(batch_frames, ["psi", "phi"]))
+            if config.get("store_field"):
+                observation["field_psi"] = psi_final
+                observation["field_phi"] = phi_final
+                observation["field"] = psi_final
+            observation["wave_speed"] = float(config["wave_speed"])
+            observation["wavelength"] = float(config["wavelength"])
+            observation["frequency"] = observation["wave_speed"] / observation["wavelength"]
+            observation["score_raw"] = universe_score(observation)
+            observation["score"] = observation["score_raw"]
+            observation.update(detect_phase(observation))
+        else:
+            batch_frames = frames[:, idx] if frames is not None else None
+            temporal_metrics = None
+            if temporal_batch_metrics is not None:
+                temporal_metrics = temporal_batch_metrics[idx]
+            observation = _finalize_observation(
+                config,
+                grid,
+                batch_frames,
+                temporal_metrics=temporal_metrics,
+            )
         results.append({"config": config, "observation": observation})
     return results
 
