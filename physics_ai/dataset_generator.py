@@ -33,6 +33,9 @@ def build_records(dataset: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "node_count": obs.get("node_count", 0),
             "node_spacing": obs.get("node_spacing", 0.0),
             "symmetry_score": obs.get("symmetry", 0.0),
+            "translation_invariance": obs.get("translation_invariance", 0.0),
+            "scale_invariance": obs.get("scale_invariance", 0.0),
+            "phase_invariance": obs.get("phase_invariance", 0.0),
             "peak_count": obs.get("peak_count", 0),
         })
     return records

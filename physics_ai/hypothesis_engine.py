@@ -53,6 +53,12 @@ def symmetry_hypotheses(features: Dict[str, Any]) -> List[str]:
         hypotheses.append("angular_momentum_conserved")
     if str(features.get("symmetry_group", "")).startswith("D"):
         hypotheses.append("dihedral_symmetry_structures")
+    if float(features.get("translation_invariance", 0.0)) >= 0.85:
+        hypotheses.append("translation_invariance")
+    if float(features.get("scale_invariance", 0.0)) >= 0.8:
+        hypotheses.append("scale_invariance")
+    if float(features.get("phase_invariance", 0.0)) >= 0.8:
+        hypotheses.append("phase_invariance")
     return hypotheses
 
 

@@ -332,6 +332,20 @@ def run_experiment(
             gauge,
             evidence="gauge",
         )
+    if observations:
+        def _summarize_metric(metric: str) -> Dict[str, float] | None:
+            values = [float(obs.get(metric)) for obs in observations if obs.get(metric) is not None]
+            if not values:
+                return None
+            return {
+                "mean": float(sum(values) / len(values)),
+                "max": float(max(values)),
+            }
+
+        for name in ("translation_invariance", "scale_invariance", "phase_invariance"):
+            summary = _summarize_metric(name)
+            if summary:
+                graph.add_relation("symmetry", name, summary, evidence="symmetry")
     resonance = next(
         (obs.get("resonance_spectrum") for obs in observations if obs.get("resonance_spectrum")),
         None,

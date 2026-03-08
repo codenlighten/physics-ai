@@ -37,7 +37,7 @@ from .gauge_discovery import gauge_invariance, gauge_summary
 from .geometry_universe import GeometryConfig, simulate_geometry, simulate_resonant_geometry
 from .particle_detector import particle_summary
 from .interaction_detector import interaction_summary
-from .backend import backend_name, to_numpy
+from .backend import as_xp, backend_name, get_xp, to_numpy
 from .scoring import diversity_penalty, novelty_bonus, signature_from_observation, universe_score
 from .phase_detector import detect_phase
 from .seed_perturbations import apply_seed_perturbations
@@ -126,7 +126,8 @@ def _finalize_observation(
         observation["particles"] = particle_summary(frames)
         observation["interactions"] = interaction_summary(observation["particles"])
     if config.get("store_field"):
-        observation["field"] = np.real(grid) if np.iscomplexobj(grid) else grid
+        field_value = to_numpy(grid)
+        observation["field"] = np.real(field_value) if np.iscomplexobj(field_value) else field_value
     wave_speed = float(config["wave_speed"])
     wavelength = float(config["wavelength"])
     observation.update({
@@ -301,7 +302,9 @@ def run_universe_batch(
     if dynamics_type not in {"wave", "diffusion", "schrodinger", "reaction_diffusion", "multi_field"}:
         return [run_universe(config) for config in configs]
 
-    initial_fields = np.stack([_initial_field(config) for config in configs])
+    xp = get_xp()
+    use_backend = backend_name() == "cupy"
+    initial_fields = xp.stack([as_xp(_initial_field(config)) for config in configs])
     if initial_fields.ndim != 3:
         raise ValueError("Expected batch field shape [B, X, Y].")
     if debug_batch:
@@ -321,23 +324,26 @@ def run_universe_batch(
                 nonlinear_coeff=base_config.get("wave_nonlinear", 0.0) if "nonlinear" in terms else 0.0,
                 biharmonic_coeff=base_config.get("wave_biharmonic", 0.0) if "biharmonic" in terms else 0.0,
             ),
+            return_xp=use_backend,
         )
         grids = frames[-1]
     elif dynamics_type == "diffusion":
         frames = simulate_diffusion(
             initial_fields,
             DiffusionConfig(steps=base_config["steps"]),
+            return_xp=use_backend,
         )
         grids = frames[-1]
     elif dynamics_type == "reaction_diffusion":
-        secondary_fields = np.stack([
-            np.random.default_rng(config.get("seed")).random(initial_fields.shape[1:])
+        secondary_fields = xp.stack([
+            as_xp(np.random.default_rng(config.get("seed")).random(initial_fields.shape[1:]))
             for config in configs
         ])
         field_a, field_b = simulate_reaction_diffusion(
             initial_fields,
             secondary_fields,
             ReactionDiffusionConfig(steps=base_config["steps"]),
+            return_xp=use_backend,
         )
         grids = field_a
     elif dynamics_type == "multi_field":
@@ -347,8 +353,8 @@ def run_universe_batch(
             fields = _initial_multifield(config)
             psi_fields.append(fields["psi"])
             phi_fields.append(fields["phi"])
-        psi_batch = np.stack(psi_fields)
-        phi_batch = np.stack(phi_fields)
+        psi_batch = xp.stack([as_xp(field) for field in psi_fields])
+        phi_batch = xp.stack([as_xp(field) for field in phi_fields])
         frames = simulate_coupled_fields(
             psi_batch,
             phi_batch,
@@ -365,6 +371,7 @@ def run_universe_batch(
                 psi_decay=base_config.get("psi_decay", 0.05),
                 phi_decay=base_config.get("phi_decay", 0.04),
             ),
+            return_xp=use_backend,
         )
         grids = frames[-1, 0]
     else:

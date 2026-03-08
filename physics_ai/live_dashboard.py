@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, Optional, List, Set, Tuple
+import json
 import ast
 
 import pandas as pd
@@ -290,6 +291,8 @@ def main() -> None:
         "Regime Explorer",
         "Regime Compare",
         "Atlas Statistics",
+        "Symmetry",
+        "Model Registry",
         "Knowledge Graph",
         "Surprise Alerts",
     ])
@@ -926,6 +929,155 @@ Fit: {row['law_fit_score']:.3f} · Validation: {row['law_validation_score']:.3f}
                 st.dataframe(rare)
 
     with tabs[13]:
+        st.subheader("Symmetry + conservation")
+        symmetry_cols = [
+            "translation_invariance",
+            "scale_invariance",
+            "phase_invariance",
+            "rotation_score",
+            "reflection_score",
+            "so2_score",
+        ]
+        available = [col for col in symmetry_cols if col in df.columns]
+        if not available:
+            st.info("No symmetry metrics recorded in this run.")
+        else:
+            st.markdown("**Symmetry metric distributions**")
+            for col in available:
+                fig = px.histogram(df.dropna(subset=[col]), x=col, nbins=30)
+                fig.update_layout(title=col)
+                st.plotly_chart(fig, use_container_width=True)
+            if "symmetry_group" in df.columns:
+                st.markdown("**Symmetry group counts**")
+                group_counts = df["symmetry_group"].value_counts().reset_index()
+                group_counts.columns = ["symmetry_group", "count"]
+                st.dataframe(group_counts)
+            st.markdown("**Top symmetry regimes**")
+            score_cols = [col for col in available if col in df.columns]
+            if score_cols:
+                top = df.sort_values(score_cols[0], ascending=False).head(15)
+                st.dataframe(top.loc[:, ["universe_id"] + score_cols])
+            if "generation" in df.columns:
+                st.markdown("**Symmetry trends by generation**")
+                trend = (
+                    df.groupby("generation")[available]
+                    .mean()
+                    .reset_index()
+                    .melt(id_vars="generation", var_name="metric", value_name="mean_value")
+                )
+                if not trend.empty:
+                    fig = px.line(trend, x="generation", y="mean_value", color="metric")
+                    st.plotly_chart(fig, use_container_width=True)
+
+    with tabs[14]:
+        st.subheader("Model registry")
+        registry_root = Path("models")
+        if not registry_root.exists():
+            st.info("No model registry directory found. Train a PLL-M model to populate it.")
+        else:
+            runs = sorted(
+                [path for path in registry_root.iterdir() if path.is_dir() and path.name.startswith("run-")],
+                reverse=True,
+            )
+            if not runs:
+                st.info("No registry runs available yet.")
+            else:
+                run_rows = []
+                for run in runs:
+                    metadata_path = run / "metadata.json"
+                    config_path = run / "configs" / "train_config.json"
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+                    config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+                    training = metadata.get("training", {}) if isinstance(metadata, dict) else {}
+                    dataset = metadata.get("dataset", {}) if isinstance(metadata, dict) else {}
+                    tags = metadata.get("tags", []) if isinstance(metadata, dict) else []
+                    run_rows.append({
+                        "run_id": run.name,
+                        "records": dataset.get("record_count"),
+                        "operator_vocab": training.get("operator_vocab"),
+                        "device": training.get("device"),
+                        "model_type": config.get("model_type"),
+                        "model_dim": config.get("model_dim"),
+                        "tags": tags,
+                    })
+                runs_df = pd.DataFrame(run_rows)
+                search = st.text_input("Filter run id", value="")
+                model_types = sorted(runs_df["model_type"].dropna().unique().tolist())
+                selected_types = st.multiselect("Model types", model_types, default=model_types)
+                tag_options = sorted({tag for tags in runs_df["tags"].dropna() for tag in tags})
+                selected_tags = st.multiselect("Tags", tag_options, default=tag_options)
+                filtered = runs_df.copy()
+                if search:
+                    filtered = filtered[filtered["run_id"].str.contains(search, case=False, na=False)]
+                if selected_types:
+                    filtered = filtered[filtered["model_type"].isin(selected_types)]
+                if selected_tags:
+                    filtered = filtered[filtered["tags"].apply(lambda tags: bool(set(tags or []) & set(selected_tags)))]
+                if "tags" in filtered.columns:
+                    filtered = filtered.copy()
+                    filtered["tags"] = filtered["tags"].apply(lambda tags: ", ".join(tags) if tags else "")
+
+                st.markdown("**Registry summary**")
+                st.dataframe(filtered if not filtered.empty else runs_df)
+
+                summary_source = filtered if not filtered.empty else runs_df
+                if not summary_source.empty:
+                    st.markdown("**Registry stats**")
+                    if summary_source["model_type"].notna().any():
+                        type_counts = summary_source["model_type"].value_counts().reset_index()
+                        type_counts.columns = ["model_type", "count"]
+                        st.plotly_chart(
+                            px.bar(type_counts, x="model_type", y="count", title="Models by type"),
+                            use_container_width=True,
+                        )
+                    if summary_source["device"].notna().any():
+                        device_counts = summary_source["device"].value_counts().reset_index()
+                        device_counts.columns = ["device", "count"]
+                        st.plotly_chart(
+                            px.bar(device_counts, x="device", y="count", title="Models by device"),
+                            use_container_width=True,
+                        )
+                    if summary_source["records"].notna().any():
+                        st.plotly_chart(
+                            px.histogram(summary_source.dropna(subset=["records"]), x="records", nbins=20),
+                            use_container_width=True,
+                        )
+
+                run_labels = (filtered["run_id"].tolist() if not filtered.empty else runs_df["run_id"].tolist())
+                selected = st.selectbox("Select registry run", run_labels)
+                selected_path = registry_root / selected
+                metadata_path = selected_path / "metadata.json"
+                config_path = selected_path / "configs" / "train_config.json"
+                provenance_path = selected_path / "provenance.json"
+
+                if metadata_path.exists():
+                    metadata = pd.read_json(metadata_path)
+                    if isinstance(metadata, pd.Series):
+                        metadata = metadata.to_frame().T
+                    st.markdown("**Run metadata**")
+                    st.dataframe(metadata)
+                if config_path.exists():
+                    config = pd.read_json(config_path)
+                    if isinstance(config, pd.Series):
+                        config = config.to_frame().T
+                    st.markdown("**Training config**")
+                    st.dataframe(config)
+                if provenance_path.exists():
+                    provenance = pd.read_json(provenance_path)
+                    if isinstance(provenance, pd.Series):
+                        provenance = provenance.to_frame().T
+                    st.markdown("**Artifacts**")
+                    st.dataframe(provenance)
+
+                artifacts_dir = selected_path / "artifacts"
+                if artifacts_dir.exists():
+                    cards = sorted(artifacts_dir.glob("*.md"))
+                    if cards:
+                        card_choice = st.selectbox("Model cards", [card.name for card in cards])
+                        card_path = artifacts_dir / card_choice
+                        st.markdown(card_path.read_text(encoding="utf-8"))
+
+    with tabs[15]:
         st.subheader("Knowledge Graph")
         summary_path = run_path / "graph_summary.json"
         relations_path = run_path / "graph_relations.json"
@@ -1052,7 +1204,7 @@ Fit: {row['law_fit_score']:.3f} · Validation: {row['law_validation_score']:.3f}
                             st.plotly_chart(fig, use_container_width=True)
                     st.dataframe(relations)
 
-    with tabs[14]:
+    with tabs[16]:
         surprises = df[df["density_surprise"]].sort_values("score", ascending=False)
         if surprises.empty:
             st.success("No surprise regimes detected with current thresholds.")

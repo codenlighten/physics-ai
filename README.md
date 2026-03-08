@@ -64,6 +64,7 @@ Observers analyze simulation frames and extract:
 - coherence length
 - spectral entropy
 - resonance peaks
+- translation/scale/phase invariance
 
 The engine can detect particle-like structures, solitons, interference patterns, nonlinear interactions, and particle collisions.
 
@@ -157,6 +158,7 @@ A Streamlit dashboard allows interactive exploration. Panels include:
 - Resonance Ratios
 - Atlas Statistics
 - Knowledge Graph Explorer
+- Model Registry
 
 Example launch:
 
@@ -298,6 +300,81 @@ python -m physics_ai.benchmark_runner --mode wave --batch 64 --size 64 --steps 8
 ## Run registry
 
 When you run with `--checkpoint-dir`, the lab writes a `runs.jsonl` file in that directory with the run config and summary metadata for later analysis.
+
+## PLL-M dataset + training
+
+Build a PLL-M dataset from checkpointed runs and an atlas export:
+
+```bash
+python -m physics_ai.pll_m_dataset --run-dir experiments/run_*/ --atlas atlas.csv --output datasets/pll_m.jsonl
+```
+
+Train the minimal operator predictor:
+
+```bash
+python -m physics_ai.train_pll_m --dataset datasets/pll_m.jsonl --model-path models/pll_m.pt --vocab-path models/pll_m_vocab.json
+```
+
+Trainer options (transformer by default):
+
+```bash
+python -m physics_ai.train_pll_m \
+	--dataset datasets/pll_m.jsonl \
+	--model-type transformer \
+	--model-dim 64 \
+	--num-heads 4 \
+	--num-layers 2 \
+	--dropout 0.1
+```
+
+### Model registry
+
+Each PLL-M training run writes a model card, config, and provenance file in `models/run-*`.
+
+List registry entries:
+
+```bash
+python -m physics_ai.model_registry_cli list
+```
+
+Show a registry entry:
+
+```bash
+python -m physics_ai.model_registry_cli show run-YYYYMMDDThhmmssZ
+```
+
+Export registry summary:
+
+```bash
+python -m physics_ai.model_registry_cli export --output registry_export.json
+```
+
+You can export CSV summaries as well:
+
+```bash
+python -m physics_ai.model_registry_cli export --format csv --output registry_export.csv
+```
+
+Archive a registry run:
+
+```bash
+python -m physics_ai.model_registry_cli archive run-YYYYMMDDThhmmssZ
+```
+
+Restore an archived registry run:
+
+```bash
+python -m physics_ai.model_registry_cli restore run-YYYYMMDDThhmmssZ
+```
+
+Tag a registry run:
+
+```bash
+python -m physics_ai.model_registry_cli tag run-YYYYMMDDThhmmssZ --tags baseline,gpu
+```
+
+See `docs/registry_summary.md` for a registry layout overview.
+See `docs/registry_charts.md` for registry chart descriptions.
 
 ## GPU acceleration
 

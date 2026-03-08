@@ -47,6 +47,9 @@ def infer_noether(
     observation: Dict[str, Any],
     energy_threshold: float = 0.01,
     momentum_threshold: float = 0.05,
+    translation_threshold: float = 0.85,
+    scale_threshold: float = 0.8,
+    phase_threshold: float = 0.8,
     lagrangian: str | None = None,
     dt: float = 1.0,
 ) -> List[NoetherResult]:
@@ -55,6 +58,9 @@ def infer_noether(
     momentum_drift = float(observation.get("temporal_momentum_drift_ratio", 1.0))
     symmetry_group = observation.get("symmetry_group")
     temporal_signal = observation.get("temporal_signal", [])
+    translation_score = float(observation.get("translation_invariance", 0.0))
+    scale_score = float(observation.get("scale_invariance", 0.0))
+    phase_score = float(observation.get("phase_invariance", 0.0))
 
     if energy_drift < energy_threshold:
         results.append(
@@ -88,6 +94,39 @@ def infer_noether(
                 drift_ratio=momentum_drift,
                 conserved=True,
                 evidence="temporal_momentum_drift",
+            )
+        )
+
+    if translation_score >= translation_threshold and momentum_drift < momentum_threshold:
+        results.append(
+            NoetherResult(
+                symmetry="space_translation",
+                conserved_quantity="momentum",
+                drift_ratio=1.0 - translation_score,
+                conserved=True,
+                evidence="translation_invariance",
+            )
+        )
+
+    if scale_score >= scale_threshold:
+        results.append(
+            NoetherResult(
+                symmetry="scale",
+                conserved_quantity="dilation_charge",
+                drift_ratio=1.0 - scale_score,
+                conserved=True,
+                evidence="scale_invariance",
+            )
+        )
+
+    if phase_score >= phase_threshold:
+        results.append(
+            NoetherResult(
+                symmetry="phase",
+                conserved_quantity="charge",
+                drift_ratio=1.0 - phase_score,
+                conserved=True,
+                evidence="phase_invariance",
             )
         )
 

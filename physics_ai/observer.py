@@ -12,6 +12,7 @@ from .geometry_frequency import geometry_frequency_features
 from .group_theory import classify_group, rotation_symmetry, reflection_symmetry, so2_symmetry_score
 from .defect_detector import defect_summary
 from .particle_detector import particle_summary
+from .symmetry_discovery import symmetry_profile
 
 
 def observe(grid: np.ndarray) -> Dict[str, Any]:
@@ -51,6 +52,7 @@ def observe(grid: np.ndarray) -> Dict[str, Any]:
         "so2_score": so2_score,
     }
     metrics.update(geometry_frequency_features(grid))
+    metrics.update(symmetry_profile(grid))
     metrics.update(defect_summary(grid))
     return metrics
 
@@ -124,18 +126,21 @@ def observe_temporal(frames: np.ndarray) -> Dict[str, Any]:
     xp = get_xp()
     frames_xp = as_xp(frames)
     magnitudes = xp.abs(frames_xp)
-    signal = to_numpy(xp.mean(magnitudes, axis=(1, 2)))
-    energy_series = to_numpy(xp.sum(magnitudes ** 2, axis=(1, 2)))
+    signal_xp = xp.mean(magnitudes, axis=(1, 2))
+    energy_series_xp = xp.sum(magnitudes ** 2, axis=(1, 2))
+    energy_series = to_numpy(energy_series_xp)
+    signal = to_numpy(signal_xp)
     start_energy = float(energy_series[0])
     end_energy = float(energy_series[-1])
     mean_energy = float(np.mean(energy_series)) if np.mean(energy_series) != 0 else 1.0
     energy_drift_ratio = float(np.std(energy_series) / mean_energy)
     momentum_series = []
-    for frame in to_numpy(magnitudes):
-        grad_x, grad_y = np.gradient(frame)
-        momentum_series.append(float(np.sum(grad_x ** 2 + grad_y ** 2)))
-    momentum_mean = float(np.mean(momentum_series)) if np.mean(momentum_series) != 0 else 1.0
-    momentum_drift_ratio = float(np.std(momentum_series) / momentum_mean)
+    for frame in magnitudes:
+        grad_x, grad_y = xp.gradient(frame)
+        momentum_series.append(xp.sum(grad_x ** 2 + grad_y ** 2))
+    momentum_series_np = to_numpy(xp.stack(momentum_series)) if momentum_series else np.array([])
+    momentum_mean = float(np.mean(momentum_series_np)) if np.mean(momentum_series_np) != 0 else 1.0
+    momentum_drift_ratio = float(np.std(momentum_series_np) / momentum_mean)
     metrics = {
         "temporal_energy_start": start_energy,
         "temporal_energy_end": end_energy,
@@ -145,7 +150,7 @@ def observe_temporal(frames: np.ndarray) -> Dict[str, Any]:
         "temporal_fft": temporal_fft(frames),
         "temporal_signal": [float(value) for value in signal],
     }
-    metrics.update(particle_summary(frames))
+    metrics.update(particle_summary(to_numpy(frames_xp)))
     return metrics
 
 
@@ -157,9 +162,12 @@ def observe_temporal_batch(frames: np.ndarray) -> List[Dict[str, Any]]:
     xp = get_xp()
     frames_xp = as_xp(frames)
     magnitudes = xp.abs(frames_xp)
-    signal = to_numpy(xp.mean(magnitudes, axis=(2, 3)))
-    energy_series = to_numpy(xp.sum(magnitudes ** 2, axis=(2, 3)))
-    fft_values = to_numpy(xp.abs(xp.fft.rfft(as_xp(signal), axis=0)))
+    signal_xp = xp.mean(magnitudes, axis=(2, 3))
+    energy_series_xp = xp.sum(magnitudes ** 2, axis=(2, 3))
+    fft_values_xp = xp.abs(xp.fft.rfft(signal_xp, axis=0))
+    signal = to_numpy(signal_xp)
+    energy_series = to_numpy(energy_series_xp)
+    fft_values = to_numpy(fft_values_xp)
 
     results: List[Dict[str, Any]] = []
     batch_size = signal.shape[1]
@@ -170,11 +178,12 @@ def observe_temporal_batch(frames: np.ndarray) -> List[Dict[str, Any]]:
         mean_energy = float(np.mean(series)) if np.mean(series) != 0 else 1.0
         energy_drift_ratio = float(np.std(series) / mean_energy)
         momentum_series = []
-        for frame in to_numpy(magnitudes[:, idx]):
-            grad_x, grad_y = np.gradient(frame)
-            momentum_series.append(float(np.sum(grad_x ** 2 + grad_y ** 2)))
-        momentum_mean = float(np.mean(momentum_series)) if np.mean(momentum_series) != 0 else 1.0
-        momentum_drift_ratio = float(np.std(momentum_series) / momentum_mean)
+        for frame in magnitudes[:, idx]:
+            grad_x, grad_y = xp.gradient(frame)
+            momentum_series.append(xp.sum(grad_x ** 2 + grad_y ** 2))
+        momentum_series_np = to_numpy(xp.stack(momentum_series)) if momentum_series else np.array([])
+        momentum_mean = float(np.mean(momentum_series_np)) if np.mean(momentum_series_np) != 0 else 1.0
+        momentum_drift_ratio = float(np.std(momentum_series_np) / momentum_mean)
         metrics = {
             "temporal_energy_start": start_energy,
             "temporal_energy_end": end_energy,

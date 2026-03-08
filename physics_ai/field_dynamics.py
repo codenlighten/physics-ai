@@ -77,7 +77,7 @@ class CoupledFieldConfig:
     phi_decay: float = 0.04
 
 
-def simulate_wave(field: np.ndarray, config: WaveConfig) -> np.ndarray:
+def simulate_wave(field: np.ndarray, config: WaveConfig, return_xp: bool = False):
     xp = get_xp()
     field = as_xp(field)
     velocity = xp.zeros_like(field)
@@ -90,24 +90,28 @@ def simulate_wave(field: np.ndarray, config: WaveConfig) -> np.ndarray:
         velocity = velocity + accel * config.dt
         field = field + velocity * config.dt
         frames.append(field.copy())
-    return to_numpy(xp.stack(frames))
+    stacked = xp.stack(frames)
+    return stacked if return_xp else to_numpy(stacked)
 
 
-def simulate_diffusion(field: np.ndarray, config: DiffusionConfig) -> np.ndarray:
+def simulate_diffusion(field: np.ndarray, config: DiffusionConfig, return_xp: bool = False):
     xp = get_xp()
     field = as_xp(field)
     frames = []
     for _ in range(config.steps):
         field = field + config.diffusion * laplacian(field)
         frames.append(field.copy())
-    return to_numpy(xp.stack(frames))
+    stacked = xp.stack(frames)
+    return stacked if return_xp else to_numpy(stacked)
 
 
 def simulate_reaction_diffusion(
     field_a: np.ndarray,
     field_b: np.ndarray,
     config: ReactionDiffusionConfig,
-) -> Tuple[np.ndarray, np.ndarray]:
+    return_xp: bool = False,
+):
+    xp = get_xp()
     field_a = as_xp(field_a)
     field_b = as_xp(field_b)
     for _ in range(config.steps):
@@ -116,6 +120,8 @@ def simulate_reaction_diffusion(
         reaction = field_a * field_b * field_b
         field_a = field_a + config.diffusion_a * lap_a - reaction + config.feed * (1 - field_a)
         field_b = field_b + config.diffusion_b * lap_b + reaction - config.kill * field_b
+    if return_xp:
+        return field_a, field_b
     return to_numpy(field_a), to_numpy(field_b)
 
 
@@ -131,7 +137,7 @@ def simulate_oscillator(config: OscillatorConfig) -> np.ndarray:
     return np.array(positions, dtype=float)
 
 
-def simulate_schrodinger(field: np.ndarray, config: SchrodingerConfig) -> np.ndarray:
+def simulate_schrodinger(field: np.ndarray, config: SchrodingerConfig, return_xp: bool = False):
     frames = []
     xp = get_xp()
     state = as_xp(field).astype(np.complex128)
@@ -139,14 +145,16 @@ def simulate_schrodinger(field: np.ndarray, config: SchrodingerConfig) -> np.nda
         lap = laplacian(state)
         state = state + 1j * config.dt * lap
         frames.append(state.copy())
-    return to_numpy(xp.stack(frames))
+    stacked = xp.stack(frames)
+    return stacked if return_xp else to_numpy(stacked)
 
 
 def simulate_coupled_fields(
     psi_field: np.ndarray,
     phi_field: np.ndarray,
     config: CoupledFieldConfig,
-) -> np.ndarray:
+    return_xp: bool = False,
+):
     xp = get_xp()
     psi = as_xp(psi_field)
     phi = as_xp(phi_field)
@@ -170,4 +178,5 @@ def simulate_coupled_fields(
         psi = psi + dpsi * config.dt
         phi = phi + dphi * config.dt
         frames.append(xp.stack([psi.copy(), phi.copy()]))
-    return to_numpy(xp.stack(frames))
+    stacked = xp.stack(frames)
+    return stacked if return_xp else to_numpy(stacked)
